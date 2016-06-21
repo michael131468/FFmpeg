@@ -14,6 +14,7 @@ HEADERS = avcodec.h                                                     \
           vaapi.h                                                       \
           vda.h                                                         \
           vdpau.h                                                       \
+          aml.h                                                         \
           version.h                                                     \
           videotoolbox.h                                                \
           vorbis_parser.h                                               \

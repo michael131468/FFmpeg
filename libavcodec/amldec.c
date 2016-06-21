@@ -25,9 +25,9 @@
  */
 
 #include "avcodec.h"
+#include "aml.h"
 #include "internal.h"
 #include "amltools.h"
-
 
 #include "libavutil/atomic.h"
 #include "libavutil/avassert.h"
@@ -211,8 +211,8 @@ static av_cold int ffaml_init_decoder(AVCodecContext *avctx)
   memset(&aml_context->buffer_status, 0, sizeof(aml_context->buffer_status));
   memset(&aml_context->decoder_status, 0, sizeof(aml_context->decoder_status));
   memset(&aml_context->header, 0, sizeof(aml_context->header));
+  memset(&aml_context->ion_context, 0, sizeof(aml_context->ion_context));
 
-  // initialize ion driver
   ret = aml_ion_open(avctx, &aml_context->ion_context);
   if (ret < 0)
   {
@@ -294,8 +294,9 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
   AVFrame *frame = data;
   uint8_t *extradata;
   int extradata_size;
+  int bufferid;
+  AMLBuffer *pbuffer;
 
-  //av_log(avctx, AV_LOG_DEBUG, "decode start\n");
 #if DEBUG
   ffaml_log_decoder_info(avctx);
 #endif
@@ -381,39 +382,25 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
     return -1;
   }
 
-  int bufferid = aml_ion_dequeue_buffer(avctx, &aml_context->ion_context, got_frame);
-  uint8_t *src[4];
-  int linesize[4];
+  bufferid = aml_ion_dequeue_buffer(avctx, &aml_context->ion_context, got_frame);
 
   if (*got_frame)
   {
-    avctx->pix_fmt = AV_PIX_FMT_NV12;
-    ff_set_dimensions(avctx, aml_context->decoder_status.width, aml_context->decoder_status.height);
+    pbuffer =  &aml_context->ion_context.buffers[bufferid];
 
-    ret = ff_get_buffer(avctx, frame, 0);
-    if (ret < 0)
-    {
-      av_log(avctx, AV_LOG_ERROR, "failed to allocate frame buffer (code=%d)\n", ret);
-      return -1;
-    }
-
-
-//    av_image_fill_arrays(src, linesize, aml_context->ion_context.buffers[bufferid].data,
-//			avctx->pix_fmt,
-//			aml_context->ion_context.buffers[bufferid].stride,
-//			aml_context->ion_context.buffers[bufferid].height, 1);
-
-//    av_image_copy(frame->data, frame->linesize, (const uint8_t **)src, linesize,
-//                      avctx->pix_fmt, avctx->width, avctx->height);
-
-    frame->pkt_pts = aml_context->ion_context.buffers[bufferid].pts;
+    frame->format = AV_PIX_FMT_AML;
+    frame->width = pbuffer->width;
+    frame->height = pbuffer->height;
+    frame->linesize[0] = pbuffer->stride;
+    frame->buf[0] = av_buffer_create(NULL, 0, NULL, NULL, AV_BUFFER_FLAG_READONLY);
+    frame->data[0] = (uint8_t*)pbuffer;
+    frame->pkt_pts = pbuffer->pts;
 
     aml_ion_queue_buffer(avctx, &aml_context->ion_context, &aml_context->ion_context.buffers[bufferid]);
 
-//    if (framecount==100)
-//      aml_ion_save_buffer("yuv.dat", &aml_context->ion_context.buffers[ret]);
-
+#if DEBUG
     av_log(avctx, AV_LOG_DEBUG, "Sending Buffer %d (pts=%f) (%dx%d)!!!\n", bufferid, aml_context->ion_context.buffers[bufferid].pts * av_q2d(avctx->time_base), frame->width, frame->height);
+#endif
   }
 
    return 0;
