@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <linux/videodev2.h>
 #include <sys/mman.h>
+#include <poll.h>
 
 #include "avcodec.h"
 #include "amldec.h"
@@ -67,6 +68,8 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
 {
   struct v4l2_format fmt = { 0 };
   struct v4l2_requestbuffers req = { 0 };
+  struct v4l2_frmsizeenum frmsize = { 0 };
+  struct v4l2_fmtdesc fmtdesc = { 0 };
   int type;
   int ret;
 
@@ -104,11 +107,59 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
 
   av_log(avctx, AV_LOG_DEBUG, "openned %s with fd=%d\n", ION_VIDEO_DEVICE_NAME, ionctx->video_fd);
 
+  // enumerate capture frame sizes
+//  memset(&fmtdesc, 0, sizeof(fmtdesc));
+//  fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+//  fmtdesc.index = 0;
+//  while (ioctl(ionctx->video_fd, VIDIOC_ENUM_FMT, &fmtdesc) >= 0)
+//  {
+//    frmsize.pixel_format = fmtdesc.pixelformat;
+//    frmsize.index = 0;
+
+//    while (ioctl(ionctx->video_fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) >= 0)
+//    {
+//      if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE)
+//      {
+//        av_log(avctx, AV_LOG_DEBUG, "Discrete format #%d, size#%d,  w=%d, h=%d\n",
+//               fmtdesc.index,
+//               frmsize.index,
+//               frmsize.discrete.width,
+//               frmsize.discrete.height);
+//      }
+//      else if (frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE)
+//      {
+//        av_log(avctx, AV_LOG_DEBUG, "StepWise format #%d, size#%d,  w=%d, h=%d\n",
+//               fmtdesc.index,
+//               frmsize.index,
+//               frmsize.stepwise.max_width,
+//               frmsize.stepwise.max_height);
+//      }
+//      frmsize.index++;
+//    }
+//    fmtdesc.index++;
+//  }
+
+//  memset(&fmt, 0, sizeof(fmt));
+//  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+//  if (ioctl(ionctx->video_fd, VIDIOC_G_FMT, &fmt))
+//  {
+//    av_log(avctx, AV_LOG_ERROR, "ioctl for VIDIOC_G_FMT failed\n");
+//    goto err;
+//  }
+
+
+//  av_log(avctx, AV_LOG_DEBUG, "current fmt : type=%d, w=%d, h=%d, pixfmt=%x field=%d",
+//         fmt.type, fmt.fmt.pix.width, fmt.fmt.pix.height, fmt.fmt.pix.pixelformat,
+//         fmt.fmt.pix.field);
+
+
   // Now setup the format
+  memset(&fmt, 0, sizeof(fmt));
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  fmt.fmt.pix_mp.width = avctx->width;
-  fmt.fmt.pix_mp.height = avctx->height;
-  fmt.fmt.pix_mp.pixelformat = ionctx->pixel_format;
+  fmt.fmt.pix.width = avctx->width;
+  fmt.fmt.pix.height = avctx->height;
+  fmt.fmt.pix.pixelformat = ionctx->pixel_format;
+  //fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
   if (ioctl(ionctx->video_fd, VIDIOC_S_FMT, &fmt))
   {
@@ -126,6 +177,21 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
     av_log(avctx, AV_LOG_ERROR, "ioctl for VIDIOC_REQBUFS failed\n");
     goto err;
   }
+
+//  // Query Buf
+//  struct v4l2_buffer buf;
+//  memset(&buf, 0, sizeof(buf));
+//  buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+//  buf.memory      = V4L2_MEMORY_MMAP;
+//  buf.index       = 0;
+//  if (ioctl(ionctx->video_fd, VIDIOC_QUERYBUF, &buf))
+//  {
+//    av_log(avctx, AV_LOG_ERROR, "ioctl for VIDIOC_QUERYBUF failed\n");
+//    goto err;
+//  }
+//  av_log(avctx, AV_LOG_DEBUG, "buffer size = %d bytes\n", buf.length);
+
+
 
   // setup streaming
   type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -264,28 +330,13 @@ int aml_ion_create_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer
   ion_alloc.len = buffer->size;
   ion_alloc.heap_id_mask = ION_HEAP_CARVEOUT_MASK;
 
-  int maxretry = 3;
-
-  while (maxretry)
+  ret = ioctl(ionctx->ion_fd, ION_IOC_ALLOC, &ion_alloc);
+  if (ret < 0)
   {
-    ret = ioctl(ionctx->ion_fd, ION_IOC_ALLOC, &ion_alloc);
-    if (ret < 0)
-    {
-      if (maxretry == 0)
-      {
-        av_log(avctx, AV_LOG_ERROR, "failed to allocate ion buffer %d (code=%d)\n", buffer->index, ret);
-        return -1;
-      }
-      else
-      {
-        // we failed, retry
-        maxretry--;
-        usleep(10000);
-      }
-    }
-    else
-      break;
+    av_log(avctx, AV_LOG_ERROR, "failed to allocate ion buffer %d (code=%d)\n", buffer->index, ret);
+    return -1;
   }
+
   buffer->handle = ion_alloc.handle;
 
   // share the buffer
@@ -361,35 +412,44 @@ int aml_ion_queue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer 
 }
 
 
-int aml_ion_dequeue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, int *got_buffer)
+int aml_ion_dequeue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, int *got_buffer, int timeoutms)
 {
   int ret;
   struct v4l2_buffer vbuf = { 0 };
 
-  *got_buffer = 0;
+  struct pollfd fds[1];
 
-  vbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  vbuf.memory = V4L2_MEMORY_DMABUF;
-
-  ret = ioctl(ionctx->video_fd, VIDIOC_DQBUF, &vbuf);
-  if (ret < 0)
+  fds[0].fd = ionctx->video_fd;
+  fds[0].events = POLLIN;
+  if (poll(fds, 1, timeoutms) == 1)
   {
-    if (errno == EAGAIN)
-    {
-       av_log(avctx, AV_LOG_DEBUG, "LongChair :dequeuing EAGAIN #%d, pts=%ld\n", vbuf.index, vbuf.timestamp.tv_usec);
-       usleep(10000);
-      return 0;
-    }
-    else
-    {
-      av_log(avctx, AV_LOG_ERROR, "failed to dequeue ion (code %d)\n", ret);
-      return -1;
-    }
-  }
+    *got_buffer = 0;
 
-  ionctx->buffers[vbuf.index].queued = 0;
-  ionctx->buffers[vbuf.index].pts = ((double)vbuf.timestamp.tv_usec / 1000000.0) / av_q2d(avctx->time_base);
-  *got_buffer = 1;
+    vbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    vbuf.memory = V4L2_MEMORY_DMABUF;
+
+    ret = ioctl(ionctx->video_fd, VIDIOC_DQBUF, &vbuf);
+    if (ret < 0)
+    {
+      if (errno == EAGAIN)
+      {
+         av_log(avctx, AV_LOG_DEBUG, "LongChair :dequeuing EAGAIN #%d, pts=%ld\n", vbuf.index, vbuf.timestamp.tv_usec);
+         usleep(50000);
+        return 0;
+      }
+      else
+      {
+        av_log(avctx, AV_LOG_ERROR, "failed to dequeue ion (code %d)\n", ret);
+        return -1;
+      }
+    }
+
+    ionctx->buffers[vbuf.index].queued = 0;
+    ionctx->buffers[vbuf.index].fpts = ((double)vbuf.timestamp.tv_usec / 1000000.0);
+    ionctx->buffers[vbuf.index].pts = ionctx->buffers[vbuf.index].fpts / av_q2d(avctx->time_base);
+
+    *got_buffer = 1;
+  }
 
   return vbuf.index;
 }

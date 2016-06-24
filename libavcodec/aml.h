@@ -3,7 +3,7 @@
 
 #include "libavutil/common.h"
 
-#define AML_BUFFER_COUNT        (4)
+#define AML_BUFFER_COUNT        (6)
 
 typedef struct {
   int width;
@@ -13,11 +13,13 @@ typedef struct {
   int size;
 
   int64_t pts;
+  double fpts;
 
   int handle;    // handle to the allocated buffer in ion memory
   int fd_handle; // file descriptor to  buffer for dmabuf
 
   int queued;
+  int requeue;
   int index;
 } AMLBuffer;
 
