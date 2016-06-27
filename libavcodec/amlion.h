@@ -10,6 +10,8 @@ typedef struct {
   int ion_fd;
   int video_fd;
   int pixel_format;
+  int capture_width;
+  int capture_height;
   AMLBuffer buffers[AML_BUFFER_COUNT];
 
 } AMLIonContext;

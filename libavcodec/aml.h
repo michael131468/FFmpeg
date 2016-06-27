@@ -3,7 +3,7 @@
 
 #include "libavutil/common.h"
 
-#define AML_BUFFER_COUNT        (6)
+#define AML_BUFFER_COUNT        (2)
 
 typedef struct {
   int width;

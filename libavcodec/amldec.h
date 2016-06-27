@@ -19,7 +19,7 @@
 
 
 #define MAX_HEADER_SIZE         4096
-#define MIN_DECODER_PACKETS     16
+#define MIN_DECODER_PACKETS     0
 #define MAX_DEQUEUE_TIMEOUT_MS  50
 
 typedef struct {

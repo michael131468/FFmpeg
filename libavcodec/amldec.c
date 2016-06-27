@@ -110,6 +110,7 @@ int ffaml_write_pkt_data(AVCodecContext *avctx, AVPacket *avpkt)
 
   // grab the decoder buff status, if we on't have enough buffer space
   // we will sleep a bit, that way write never hangs up
+#if 0
   do
   {
     ret = codec_get_vbuf_state(pcodec, &vdec_stat);
@@ -125,6 +126,7 @@ int ffaml_write_pkt_data(AVCodecContext *avctx, AVPacket *avpkt)
       usleep(10000);
     }
   } while (vdec_stat.free_len < bytesleft);
+#endif
 
   // check in the pts
   ffaml_checkin_packet_pts(avctx, avpkt);
@@ -219,7 +221,9 @@ static av_cold int ffaml_init_decoder(AVCodecContext *avctx)
   pcodec->has_video = 1;
   pcodec->video_type = aml_get_vformat(avctx);
   pcodec->am_sysinfo.format = aml_get_vdec_type(avctx);
-  pcodec->am_sysinfo.param = (void*)(EXTERNAL_PTS | SYNC_OUTSIDE);
+  pcodec->am_sysinfo.param = (void*)(EXTERNAL_PTS);
+
+  pcodec->am_sysinfo.rate = (96000.0 / (24000.0 / 1001.0));
   pcodec->am_sysinfo.width = avctx->width;
   pcodec->am_sysinfo.height = avctx->height;
 
@@ -236,14 +240,14 @@ static av_cold int ffaml_init_decoder(AVCodecContext *avctx)
   codec_set_cntl_mode(pcodec, TRICKMODE_NONE);
   codec_set_cntl_syncthresh(pcodec, 0);
 
-  amlsysfs_write_int(avctx, "/sys/class/tsync/enable", 0);
-  amlsysfs_write_int(avctx, "/sys/class/tsync/mode", 0);
+  //amlsysfs_write_int(avctx, "/sys/class/tsync/enable", 0);
+  //amlsysfs_write_int(avctx, "/sys/class/tsync/mode", 0);
 
   // disable blackout policy
-  amlsysfs_write_int(avctx, "/sys/class/video/blackout_policy", 0);
+  //amlsysfs_write_int(avctx, "/sys/class/video/blackout_policy", 0);
 
   // disable video output
-  amlsysfs_write_int(avctx, "/sys/class/video/disable_video", 0);
+  //amlsysfs_write_int(avctx, "/sys/class/video/disable_video", 0);
 
   ret = ffmal_init_bitstream(avctx);
   if (ret != 0)
@@ -276,6 +280,17 @@ static av_cold int ffaml_close_decoder(AVCodecContext *avctx)
   return 0;
 }
 
+static void ffaml_release_frame(void *opaque, uint8_t *data)
+{
+    AMLBuffer *pbuffer = (AMLBuffer *)data;
+
+    if ((pbuffer) && (pbuffer->queued==0))
+    {
+      pbuffer->requeue = 1;
+    }
+
+}
+
 
 static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
                          AVPacket *avpkt)
@@ -292,13 +307,13 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
   int bufferid;
   AMLBuffer *pbuffer;
 
-#if DEBUG
+//#if DEBUG
   ffaml_log_decoder_info(avctx);
-#endif
+//#endif
 
 //  for (int i=0; i < AML_BUFFER_COUNT; i++)
 //  {
-//    if ((!aml_context->ion_context.buffers[i].queued))
+//    if ((!aml_context->ion_context.buffers[i].queued) && aml_context->ion_context.buffers[i].requeue)
 //      aml_ion_queue_buffer(avctx, &aml_context->ion_context, &aml_context->ion_context.buffers[i]);
 //  }
 
@@ -339,15 +354,19 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
       aml_context->first_packet = 0;
     }
 
+#if 1
     // queue the packet
     if (ffaml_queue_packet(avctx, &aml_context->writequeue, avpkt) < 0)
     {
       av_log(avctx, AV_LOG_ERROR, "failed to queue AvPacket\n");
       return -1;
     }
+#endif
   }
 
   // now we fill up decoder buffer
+  //if ((aml_context->writequeue.tail) && (aml_context->packets_written < 200))
+#if 1
   if (aml_context->writequeue.tail)
   {
     avpkt = aml_context->writequeue.tail->pkt;
@@ -365,7 +384,7 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
     {
       pkt = ffaml_dequeue_packet(avctx, &aml_context->writequeue);
 
-      av_log(avctx, AV_LOG_DEBUG, "Writing frame with pts=%f, checkin =%f\n", pkt->pts * av_q2d(avctx->time_base), aml_context->last_checkin_pts);
+      av_log(avctx, AV_LOG_DEBUG, "Writing frame with pts=%f, checkin =%f, wpkt=%d, size=%d\n", pkt->pts * av_q2d(avctx->time_base), aml_context->last_checkin_pts, aml_context->packets_written, avpkt->size);
 
       if (ffaml_write_pkt_data(avctx, pkt) < 0)
       {
@@ -374,6 +393,31 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
       }
     }
   }
+#else
+
+  // grab video decoder info to check if we have enough input buffer space
+  ret = codec_get_vbuf_state(pcodec, &aml_context->buffer_status);
+  if (ret < 0)
+  {
+    av_log(avctx, AV_LOG_ERROR, "failed to query video decoder buffer state(code = %d)\n", ret);
+    return -1;
+  }
+
+  if ((avpkt) && (avpkt->data))
+  {
+    pkt = avpkt;
+    av_log(avctx, AV_LOG_DEBUG, "Writing frame with pts=%f, checkin =%f, wpkt=%d, size=%d\n", pkt->pts * av_q2d(avctx->time_base), aml_context->last_checkin_pts, aml_context->packets_written, avpkt->size);
+    if (ffaml_write_pkt_data(avctx, pkt) < 0)
+    {
+      av_log(avctx, AV_LOG_ERROR, "failed to write packet.\n");
+      return -1;
+    }
+  }
+  else
+  {
+    av_log(avctx, AV_LOG_ERROR, "failed to write packet NULL.\n");
+  }
+#endif
 
   // grab the video decoder status
   ret = codec_get_vdec_state(pcodec, &aml_context->decoder_status);
@@ -386,6 +430,14 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
   if (aml_context->packets_written >= MIN_DECODER_PACKETS)
     bufferid = aml_ion_dequeue_buffer(avctx, &aml_context->ion_context, got_frame, MAX_DEQUEUE_TIMEOUT_MS);
 
+//  if (aml_context->packets_written >= 200)
+//  {
+//    static count = 0;
+//    *got_frame = 1;
+//    count++;
+//    bufferid = count % AML_BUFFER_COUNT;
+//  }
+
   if (*got_frame)
   {
     pbuffer =  &aml_context->ion_context.buffers[bufferid];
@@ -394,7 +446,7 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
     frame->width = pbuffer->width;
     frame->height = pbuffer->height;
     frame->linesize[0] = pbuffer->stride;
-    frame->buf[0] = av_buffer_create(NULL, 0, NULL, NULL, AV_BUFFER_FLAG_READONLY);
+    frame->buf[0] = av_buffer_create(pbuffer, 0, ffaml_release_frame, NULL, AV_BUFFER_FLAG_READONLY);
     frame->data[0] = (uint8_t*)pbuffer;
     frame->pkt_pts = pbuffer->pts;
     pbuffer->requeue = 0;
@@ -407,6 +459,8 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
     aml_ion_queue_buffer(avctx, &aml_context->ion_context, &aml_context->ion_context.buffers[bufferid]);
   }
 
+   if (aml_context->packets_written > 490)
+     usleep(1000000);
    return 0;
 }
 

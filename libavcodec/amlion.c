@@ -13,8 +13,8 @@
 #include "amlion.h"
 
 
-#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_RGB32
-//#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_NV12
+//#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_RGB32
+#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_NV12
 //#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_YUV420
 
 
@@ -68,14 +68,18 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
 {
   struct v4l2_format fmt = { 0 };
   struct v4l2_requestbuffers req = { 0 };
-  struct v4l2_frmsizeenum frmsize = { 0 };
-  struct v4l2_fmtdesc fmtdesc = { 0 };
   int type;
   int ret;
 
   memset(ionctx, 0, sizeof(*ionctx));
   ionctx->pixel_format = BUFFER_PIXEL_FORMAT;
   
+  ionctx->capture_width = avctx->width;
+  ionctx->capture_height = avctx->height;
+
+  //ionctx->capture_width = 1920;
+  //ionctx->capture_height = 1080;
+
   // open the ion device
   if ((ionctx->ion_fd = open(ION_DEVICE_NAME, O_RDWR)) < 0)
   {
@@ -107,57 +111,12 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
 
   av_log(avctx, AV_LOG_DEBUG, "openned %s with fd=%d\n", ION_VIDEO_DEVICE_NAME, ionctx->video_fd);
 
-  // enumerate capture frame sizes
-//  memset(&fmtdesc, 0, sizeof(fmtdesc));
-//  fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-//  fmtdesc.index = 0;
-//  while (ioctl(ionctx->video_fd, VIDIOC_ENUM_FMT, &fmtdesc) >= 0)
-//  {
-//    frmsize.pixel_format = fmtdesc.pixelformat;
-//    frmsize.index = 0;
-
-//    while (ioctl(ionctx->video_fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) >= 0)
-//    {
-//      if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE)
-//      {
-//        av_log(avctx, AV_LOG_DEBUG, "Discrete format #%d, size#%d,  w=%d, h=%d\n",
-//               fmtdesc.index,
-//               frmsize.index,
-//               frmsize.discrete.width,
-//               frmsize.discrete.height);
-//      }
-//      else if (frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE)
-//      {
-//        av_log(avctx, AV_LOG_DEBUG, "StepWise format #%d, size#%d,  w=%d, h=%d\n",
-//               fmtdesc.index,
-//               frmsize.index,
-//               frmsize.stepwise.max_width,
-//               frmsize.stepwise.max_height);
-//      }
-//      frmsize.index++;
-//    }
-//    fmtdesc.index++;
-//  }
-
-//  memset(&fmt, 0, sizeof(fmt));
-//  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-//  if (ioctl(ionctx->video_fd, VIDIOC_G_FMT, &fmt))
-//  {
-//    av_log(avctx, AV_LOG_ERROR, "ioctl for VIDIOC_G_FMT failed\n");
-//    goto err;
-//  }
-
-
-//  av_log(avctx, AV_LOG_DEBUG, "current fmt : type=%d, w=%d, h=%d, pixfmt=%x field=%d",
-//         fmt.type, fmt.fmt.pix.width, fmt.fmt.pix.height, fmt.fmt.pix.pixelformat,
-//         fmt.fmt.pix.field);
-
 
   // Now setup the format
   memset(&fmt, 0, sizeof(fmt));
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  fmt.fmt.pix.width = avctx->width;
-  fmt.fmt.pix.height = avctx->height;
+  fmt.fmt.pix.width = ionctx->capture_width;
+  fmt.fmt.pix.height = ionctx->capture_height;
   fmt.fmt.pix.pixelformat = ionctx->pixel_format;
   //fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
@@ -177,21 +136,6 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
     av_log(avctx, AV_LOG_ERROR, "ioctl for VIDIOC_REQBUFS failed\n");
     goto err;
   }
-
-//  // Query Buf
-//  struct v4l2_buffer buf;
-//  memset(&buf, 0, sizeof(buf));
-//  buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-//  buf.memory      = V4L2_MEMORY_MMAP;
-//  buf.index       = 0;
-//  if (ioctl(ionctx->video_fd, VIDIOC_QUERYBUF, &buf))
-//  {
-//    av_log(avctx, AV_LOG_ERROR, "ioctl for VIDIOC_QUERYBUF failed\n");
-//    goto err;
-//  }
-//  av_log(avctx, AV_LOG_DEBUG, "buffer size = %d bytes\n", buf.length);
-
-
 
   // setup streaming
   type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -215,7 +159,7 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
   // setup vfm : we remove default frame handler and add ion handler
   amlsysfs_write_string(avctx, "/sys/class/vfm/map", "rm default");
   amlsysfs_write_string(avctx, "/sys/class/vfm/map", "add default decoder ionvideo");
-  amlsysfs_write_int(avctx, "/sys/class/ionvideo/scaling_rate", 100);
+  //amlsysfs_write_int(avctx, "/sys/class/ionvideo/scaling_rate", 100);
 
   return 0;
 
@@ -302,8 +246,8 @@ int aml_ion_create_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer
   memset(&ion_alloc, 0, sizeof(ion_alloc));
   memset(&fd_data, 0 , sizeof(fd_data));
 
-  buffer->width = avctx->width;
-  buffer->height = avctx->height;
+  buffer->width = ionctx->capture_width;
+  buffer->height = ionctx->capture_height;
 
   switch(ionctx->pixel_format)
   {
@@ -408,6 +352,7 @@ int aml_ion_queue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer 
 
   av_log(avctx, AV_LOG_DEBUG, "Queued ion buffer #%d (size = %d)\n", buffer->index, buffer->size);
   buffer->queued = 1;
+  buffer->requeue = 0;
   return buffer->index;
 }
 
@@ -417,13 +362,24 @@ int aml_ion_dequeue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, int *got
   int ret;
   struct v4l2_buffer vbuf = { 0 };
 
+
   struct pollfd fds[1];
 
+  *got_buffer = 0;
   fds[0].fd = ionctx->video_fd;
   fds[0].events = POLLIN;
   if (poll(fds, 1, timeoutms) == 1)
+//  fd_set fds;
+//  struct timeval tv;
+//  FD_ZERO(&fds);
+//  FD_SET(ionctx->video_fd, &fds);
+//  tv.tv_sec = 0;
+//  tv.tv_usec = timeoutms*1000;
+
+//  ret = select(ionctx->video_fd + 1, &fds, NULL, NULL, &tv);
+//  if (ret==1)
   {
-    *got_buffer = 0;
+
 
     vbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     vbuf.memory = V4L2_MEMORY_DMABUF;
@@ -434,12 +390,12 @@ int aml_ion_dequeue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, int *got
       if (errno == EAGAIN)
       {
          av_log(avctx, AV_LOG_DEBUG, "LongChair :dequeuing EAGAIN #%d, pts=%ld\n", vbuf.index, vbuf.timestamp.tv_usec);
-         usleep(50000);
+         //usleep(50000);
         return 0;
       }
       else
       {
-        av_log(avctx, AV_LOG_ERROR, "failed to dequeue ion (code %d)\n", ret);
+        av_log(avctx, AV_LOG_ERROR, "failed to dequeue ion buffer (code %d)\n", ret);
         return -1;
       }
     }
@@ -449,6 +405,10 @@ int aml_ion_dequeue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, int *got
     ionctx->buffers[vbuf.index].pts = ionctx->buffers[vbuf.index].fpts / av_q2d(avctx->time_base);
 
     *got_buffer = 1;
+  }
+  else
+  {
+    av_log(avctx, AV_LOG_ERROR, "timeout dequeueing ion buffer \n");
   }
 
   return vbuf.index;
