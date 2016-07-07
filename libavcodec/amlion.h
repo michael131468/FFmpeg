@@ -23,6 +23,7 @@ int aml_ion_close(AVCodecContext *avctx, AMLIonContext *ionctx);
 int aml_ion_create_buffer(AVCodecContext *avctx, AMLIonContext *ionctx, AMLBuffer *buffer);
 int aml_ion_free_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer *buffer);
 int aml_ion_queue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer *buffer);
+int aml_ion_flush(AVCodecContext *avctx, AMLIonContext *ionctx);
 int aml_ion_dequeue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, int *got_buffer, int timeoutms);
 
 #endif /* _AMLION_H_ */

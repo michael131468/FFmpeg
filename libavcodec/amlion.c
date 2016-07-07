@@ -14,10 +14,11 @@
 
 
 //#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_RGB32
-#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_NV12
+//#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_NV12
+#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_NV21
 //#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_YUV420
 
-
+// IION Driver allocation ioctl structures
 enum ion_heap_type
 {
   ION_HEAP_TYPE_SYSTEM,
@@ -77,9 +78,6 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
   ionctx->capture_width = avctx->width;
   ionctx->capture_height = avctx->height;
 
-  //ionctx->capture_width = 1920;
-  //ionctx->capture_height = 1080;
-
   // open the ion device
   if ((ionctx->ion_fd = open(ION_DEVICE_NAME, O_RDWR)) < 0)
   {
@@ -118,7 +116,6 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
   fmt.fmt.pix.width = ionctx->capture_width;
   fmt.fmt.pix.height = ionctx->capture_height;
   fmt.fmt.pix.pixelformat = ionctx->pixel_format;
-  //fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
   if (ioctl(ionctx->video_fd, VIDIOC_S_FMT, &fmt))
   {
@@ -159,13 +156,42 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
   // setup vfm : we remove default frame handler and add ion handler
   amlsysfs_write_string(avctx, "/sys/class/vfm/map", "rm default");
   amlsysfs_write_string(avctx, "/sys/class/vfm/map", "add default decoder ionvideo");
-  //amlsysfs_write_int(avctx, "/sys/class/ionvideo/scaling_rate", 100);
 
   return 0;
 
 err:
   aml_ion_close(avctx, ionctx);
   return -1;
+}
+
+int aml_ion_flush(AVCodecContext *avctx, AMLIonContext *ionctx)
+{
+  int ret;
+  int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+  if (ioctl(ionctx->video_fd, VIDIOC_STREAMOFF, &type))
+  {
+    av_log(avctx, AV_LOG_ERROR, "ioctl for VIDIOC_STREAMOFF failed\n");
+    return -1;
+  }
+
+  if (ioctl(ionctx->video_fd, VIDIOC_STREAMON, &type))
+  {
+    av_log(avctx, AV_LOG_ERROR, "ioctl for VIDIOC_STREAMON failed\n");
+    return -1;
+  }
+
+  // queue the buffers
+  for (int i=0; i < AML_BUFFER_COUNT; i++)
+  {
+    ret = aml_ion_queue_buffer(avctx, ionctx, &ionctx->buffers[i]);
+    if (ret < 0)
+    {
+      return -1;
+    }
+  }
+
+  return 0;
 }
 
 int aml_ion_close(AVCodecContext *avctx, AMLIonContext *ionctx)
@@ -253,6 +279,7 @@ int aml_ion_create_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer
   {
     case V4L2_PIX_FMT_NV12:
     case V4L2_PIX_FMT_YUV420:
+    case V4L2_PIX_FMT_NV21:
       buffer->size = ALIGN(buffer->width, 16) * (ALIGN(buffer->height, 32) + ALIGN(buffer->height, 32) / 2);
       buffer->stride = ALIGN(buffer->width, 16);
       buffer->bpp = 1;
@@ -294,7 +321,7 @@ int aml_ion_create_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer
 
   buffer->fd_handle = fd_data.fd;
 
-  av_log(avctx, AV_LOG_DEBUG, "Alloced dmabuf bufferd #%d (h=%d, fd=%d, %d x %d)\n", buffer->index, buffer->handle, buffer->fd_handle, buffer->stride, buffer->height);
+  av_log(avctx, AV_LOG_DEBUG, "Alloced dmabuf buffer #%d (h=%d, fd=%d, %d x %d)\n", buffer->index, buffer->handle, buffer->fd_handle, buffer->stride, buffer->height);
 
   return 0;
 }
@@ -327,7 +354,6 @@ int aml_ion_free_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer *
     buffer->fd_handle = 0;
   }
 
-
   return 0;
 }
 
@@ -350,7 +376,6 @@ int aml_ion_queue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer 
     return -1;
   }
 
-  av_log(avctx, AV_LOG_DEBUG, "Queued ion buffer #%d (size = %d)\n", buffer->index, buffer->size);
   buffer->queued = 1;
   buffer->requeue = 0;
   return buffer->index;
@@ -361,26 +386,13 @@ int aml_ion_dequeue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, int *got
 {
   int ret;
   struct v4l2_buffer vbuf = { 0 };
-
-
   struct pollfd fds[1];
 
   *got_buffer = 0;
   fds[0].fd = ionctx->video_fd;
   fds[0].events = POLLIN;
   if (poll(fds, 1, timeoutms) == 1)
-//  fd_set fds;
-//  struct timeval tv;
-//  FD_ZERO(&fds);
-//  FD_SET(ionctx->video_fd, &fds);
-//  tv.tv_sec = 0;
-//  tv.tv_usec = timeoutms*1000;
-
-//  ret = select(ionctx->video_fd + 1, &fds, NULL, NULL, &tv);
-//  if (ret==1)
   {
-
-
     vbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     vbuf.memory = V4L2_MEMORY_DMABUF;
 
@@ -390,7 +402,6 @@ int aml_ion_dequeue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, int *got
       if (errno == EAGAIN)
       {
          av_log(avctx, AV_LOG_DEBUG, "LongChair :dequeuing EAGAIN #%d, pts=%ld\n", vbuf.index, vbuf.timestamp.tv_usec);
-         //usleep(50000);
         return 0;
       }
       else

@@ -106,6 +106,7 @@ void avcodec_register_all(void)
     REGISTER_HWACCEL(VC1_VAAPI,         vc1_vaapi);
     REGISTER_HWACCEL(VC1_VDPAU,         vc1_vdpau);
     REGISTER_HWACCEL(VC1_MMAL,          vc1_mmal);
+    REGISTER_HWACCEL(VC1_AML,           vc1_aml);
     REGISTER_HWACCEL(VC1_QSV,           vc1_qsv);
     REGISTER_HWACCEL(VP9_D3D11VA,       vp9_d3d11va);
     REGISTER_HWACCEL(VP9_DXVA2,         vp9_dxva2);
@@ -337,6 +338,7 @@ void avcodec_register_all(void)
 #endif
     REGISTER_DECODER(VC1IMAGE,          vc1image);
     REGISTER_DECODER(VC1_MMAL,          vc1_mmal);
+    REGISTER_DECODER(VC1_AML,           vc1_aml);
     REGISTER_DECODER(VC1_QSV,           vc1_qsv);
     REGISTER_ENCODER(VC2,               vc2);
     REGISTER_DECODER(VCR1,              vcr1);

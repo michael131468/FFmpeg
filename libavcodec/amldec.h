@@ -19,11 +19,11 @@
 
 
 #define MAX_HEADER_SIZE         4096
-#define MIN_DECODER_PACKETS     0
-#define MAX_DEQUEUE_TIMEOUT_MS  50
+#define MIN_DECODER_PACKETS     16
+#define MAX_DEQUEUE_TIMEOUT_MS  100
 
 typedef struct {
-  char *data[MAX_HEADER_SIZE];
+  char data[MAX_HEADER_SIZE];
   int size;
 } AMLHeader;
 
@@ -36,21 +36,23 @@ typedef struct {
   AVClass *av_class;
   codec_para_t codec;
   int first_packet;
-  double last_checkin_pts;
+//  double last_checkin_pts;
   AVBSFContext *bsf;
-  PacketQueue writequeue;
+//  PacketQueue writequeue;
   struct buf_status buffer_status;
   struct vdec_status decoder_status;
-  AMLHeader header;
+//  AMLHeader prefeed_header;
   AMLIonContext ion_context;
   int packets_written;
 } AMLDecodeContext;
 
 // Functions prototypes
 int   ffmal_init_bitstream(AVCodecContext *avctx);
-int   ffaml_write_pkt_data(AVCodecContext *avctx, AVPacket *avpkt);
+int   ffaml_write_codec_data(AVCodecContext *avctx, char *data, int size);
+//int   ffaml_write_pkt_data(AVCodecContext *avctx, AVPacket *avpkt, AMLHeader *header);
 void  ffaml_checkin_packet_pts(AVCodecContext *avctx, AVPacket *avpkt);
-void  ffaml_create_prefeed_header(AVCodecContext *avctx, char *extradata, int extradatasize);
+void  ffaml_create_prefeed_header(AVCodecContext *avctx, AVPacket* pkt, AMLHeader *header, char *extradata, int extradatasize);
+void  ffaml_get_packet_header(AVCodecContext *avctx, AMLHeader *header, AVPacket *pkt);
 void  ffaml_log_decoder_info(AVCodecContext *avctx);
 
 #endif /* _AMLDEC_H_ */

@@ -110,7 +110,8 @@ vformat_t aml_get_vformat(AVCodecContext *avctx)
 
 vdec_type_t aml_get_vdec_type(AVCodecContext *avctx)
 {
-  vdec_type_t dec_type;
+  vdec_type_t dec_type = VIDEO_DEC_FORMAT_UNKNOW;
+
   switch (avctx->codec_tag)
   {
     case CODEC_TAG_MJPEG:
@@ -152,11 +153,11 @@ vdec_type_t aml_get_vdec_type(AVCodecContext *avctx)
     case CODEC_TAG_RMP4:
     case CODEC_TAG_MPG4:
     case CODEC_TAG_mp4v:
-    case AV_CODEC_ID_MPEG4:
+//    case AV_CODEC_ID_MPEG4:
       // mp4
       dec_type = VIDEO_DEC_FORMAT_MPEG4_5;
       break;
-    case AV_CODEC_ID_H263:
+//    case AV_CODEC_ID_H263:
     case CODEC_TAG_H263:
     case CODEC_TAG_h263:
     case CODEC_TAG_s263:
@@ -168,52 +169,124 @@ vdec_type_t aml_get_vdec_type(AVCodecContext *avctx)
     case CODEC_TAG_avc1:
     case CODEC_TAG_H264:
     case CODEC_TAG_h264:
-    case AV_CODEC_ID_H264:
+ //   case AV_CODEC_ID_H264:
       // h264
       if (aml_get_vformat(avctx) == VFORMAT_H264_4K2K)
         dec_type = VIDEO_DEC_FORMAT_H264_4K2K;
       else
         dec_type = VIDEO_DEC_FORMAT_H264;
       break;
-    case AV_CODEC_ID_RV30:
-    //case CODEC_TAG_RV30:
-      // realmedia 3
-      dec_type = VIDEO_DEC_FORMAT_REAL_8;
-      break;
-    case AV_CODEC_ID_RV40:
-    //case CODEC_TAG_RV40:
-      // realmedia 4
-      dec_type = VIDEO_DEC_FORMAT_REAL_9;
-      break;
+//    case AV_CODEC_ID_RV30:
+//    //case CODEC_TAG_RV30:
+//      // realmedia 3
+//      dec_type = VIDEO_DEC_FORMAT_REAL_8;
+//      break;
+////    case AV_CODEC_ID_RV40:
+//    //case CODEC_TAG_RV40:
+//      // realmedia 4
+//      dec_type = VIDEO_DEC_FORMAT_REAL_9;
+//      break;
     case CODEC_TAG_WMV3:
       // wmv3
       dec_type = VIDEO_DEC_FORMAT_WMV3;
       break;
-    case AV_CODEC_ID_VC1:
+//    case AV_CODEC_ID_VC1:
     case CODEC_TAG_VC_1:
     case CODEC_TAG_WVC1:
     case CODEC_TAG_WMVA:
       // vc1
       dec_type = VIDEO_DEC_FORMAT_WVC1;
       break;
-    case AV_CODEC_ID_VP6F:
-      // vp6
-      dec_type = VIDEO_DEC_FORMAT_SW;
-      break;
-    case AV_CODEC_ID_CAVS:
-    case AV_CODEC_ID_AVS:
-      // avs
-      dec_type = VIDEO_DEC_FORMAT_AVS;
-      break;
-    case AV_CODEC_ID_HEVC:
+//    case AV_CODEC_ID_VP6F:
+//      // vp6
+//      dec_type = VIDEO_DEC_FORMAT_SW;
+//      break;
+//    case AV_CODEC_ID_CAVS:
+//    case AV_CODEC_ID_AVS:
+//      // avs
+//      dec_type = VIDEO_DEC_FORMAT_AVS;
+//      break;
+    //case AV_CODEC_ID_HEVC:
+    case CODEC_TAG_hvc1:
       // h265
       dec_type = VIDEO_DEC_FORMAT_HEVC;
       break;
     default:
+
       dec_type = VIDEO_DEC_FORMAT_UNKNOW;
       break;
+  }
+
+  // if the tag is unknown, default to main types
+  if (dec_type == VIDEO_DEC_FORMAT_UNKNOW)
+  {
+    av_log(avctx, AV_LOG_WARNING, "Unknown Codec Tag 0x%x, trying to override vdec type\n", avctx->codec_tag);
+    switch (aml_get_vformat(avctx))
+    {
+      case VFORMAT_HEVC:
+        dec_type = VIDEO_DEC_FORMAT_HEVC;
+      break;
+
+      case VFORMAT_H264_4K2K:
+        dec_type = VIDEO_DEC_FORMAT_H264_4K2K;
+      break;
+
+      case VFORMAT_H264:
+        dec_type = VIDEO_DEC_FORMAT_H264;
+      break;
+
+      case VFORMAT_VC1:
+        dec_type = VIDEO_DEC_FORMAT_WVC1;
+      break;
+
+      default:
+        av_log(avctx, AV_LOG_ERROR, "Failed to override vdec type for codec ID %d\n", avctx->codec_id);
+      break;
+    }
   }
 
   return dec_type;
 }
 
+const char *aml_get_vformat_name(vformat_t format)
+{
+  switch(format)
+  {
+    case VFORMAT_MPEG12:      return "MPEG12";
+    case VFORMAT_MPEG4:       return "MPEG4";
+    case VFORMAT_H264:        return "H264";
+    case VFORMAT_MJPEG:       return "MJPEG";
+    case VFORMAT_REAL:        return "REAL";
+    case VFORMAT_JPEG:        return "JPEG";
+    case VFORMAT_VC1:         return "VC1";
+    case VFORMAT_AVS:         return "AVS";
+    case VFORMAT_SW:          return "SW";
+    case VFORMAT_H264MVC:     return "H264MVC";
+    case VFORMAT_H264_4K2K :  return "H264_4K2K";
+    case VFORMAT_HEVC :       return "HEVC";
+    default :                 return "UNSUPPORTED";
+  }
+}
+
+const char *aml_get_vdec_name(vdec_type_t vdec)
+{
+  switch(vdec)
+  {
+    case VIDEO_DEC_FORMAT_MPEG4_3:  return "MPEG3";
+    case VIDEO_DEC_FORMAT_MPEG4_4:  return "MPEG4";
+    case VIDEO_DEC_FORMAT_MPEG4_5:  return "MPEG5";
+    case VIDEO_DEC_FORMAT_H264:     return "H264";
+    case VIDEO_DEC_FORMAT_MJPEG:    return "MJPEG";
+    case VIDEO_DEC_FORMAT_MP4:      return "MP4";
+    case VIDEO_DEC_FORMAT_H263:     return "H263";
+    case VIDEO_DEC_FORMAT_REAL_8:   return "REAL_8";
+    case VIDEO_DEC_FORMAT_REAL_9:   return "REAL_9";
+    case VIDEO_DEC_FORMAT_WMV3:     return "WMV3";
+    case VIDEO_DEC_FORMAT_WVC1:     return "WVC1";
+    case VIDEO_DEC_FORMAT_SW:       return "SW";
+    case VIDEO_DEC_FORMAT_AVS:      return "AVS";
+    case VIDEO_DEC_FORMAT_H264_4K2K:return "H264_4K_2K";
+    case VIDEO_DEC_FORMAT_HEVC:     return "HEVC";
+    default :                       return "UNSUPPORTED";
+  }
+}
