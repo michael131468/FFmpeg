@@ -38,9 +38,10 @@
 #include "libavutil/log.h"
 #include <unistd.h>
 #include "amldec.h"
+#include "time.h"
 
 #undef DEBUG
-#define DEBUG (0)
+#define DEBUG (1)
 
 void ffaml_log_decoder_info(AVCodecContext *avctx)
 {
@@ -50,8 +51,6 @@ void ffaml_log_decoder_info(AVCodecContext *avctx)
         aml_context->buffer_status.data_len, 
         (double)(aml_context->buffer_status.data_len * 100) / (double)(aml_context->buffer_status.data_len + aml_context->buffer_status.free_len),
         aml_context->buffer_status.read_pointer, aml_context->buffer_status.write_pointer, aml_context->packets_written);
-
-  //av_log(avctx, AV_LOG_DEBUG, "Decoder queue : %d packets\n", aml_context->writequeue.size);
 }
 
 int ffmal_init_bitstream(AVCodecContext *avctx)
@@ -127,63 +126,6 @@ int ffaml_write_codec_data(AVCodecContext *avctx, char *data, int size)
   return 0;
 }
 
-
-//int ffaml_write_pkt_data(AVCodecContext *avctx, AVPacket *avpkt, AMLHeader *header)
-//{
-//  AMLDecodeContext *aml_context = (AMLDecodeContext*)avctx->priv_data;
-//  codec_para_t *pcodec  = &aml_context->codec;
-//  int bytesleft = avpkt->size + header->size;
-//  int written = 0;
-//  int ret = 0;
-//  struct buf_status vdec_stat;
-
-//  // grab the decoder buff status, if we on't have enough buffer space
-//  // we will sleep a bit, that way write never hangs up
-//  do
-//  {
-//    ret = codec_get_vbuf_state(pcodec, &vdec_stat);
-//    if (ret < 0)
-//    {
-//      av_log(avctx, AV_LOG_ERROR, "failed to query video decoder buffer state(code = %d)\n", ret);
-//      return -1;
-//    }
-
-//    if (vdec_stat.free_len < bytesleft)
-//    {
-//      // video decoder buffer stuffed, lets sleeps and retry
-//      usleep(10000);
-//    }
-//  } while (vdec_stat.free_len < bytesleft);
-
-//  // check in the pts
-//  ffaml_checkin_packet_pts(avctx, avpkt);
-
-//  // write the header if any
-//  if (header->size)
-//    codec_write(pcodec, header->data, header->size);
-
-//  av_log(avctx, AV_LOG_DEBUG, "Wrote header (%d bytes), %x %x %x %x\n", header->size, header->data[0], header->data[1], header->data[2], header->data[3]);
-//  av_log(avctx, AV_LOG_DEBUG, "Wrote data (%d bytes), %x %x %x %x\n", avpkt->size, avpkt->data[0], avpkt->data[1], avpkt->data[2], avpkt->data[3]);
-//  // actually write the packet data
-//  while (bytesleft)
-//  {
-//    written = codec_write(pcodec, avpkt->data + avpkt->size - bytesleft, bytesleft);
-//    if (written < 0)
-//    {
-//      av_log(avctx, AV_LOG_ERROR, "failed to write data to codec (code = %d)\n", written);
-//      usleep(10);
-//    }
-//    else
-//    {
-//      bytesleft -= written;
-//    }
-//  }
-
-//  aml_context->packets_written++;
-
-//  return 0;
-//}
-
 void ffaml_create_prefeed_header(AVCodecContext *avctx, AVPacket* pkt, AMLHeader *header, char *extradata, int extradatasize)
 {
   switch(aml_get_vformat(avctx))
@@ -206,9 +148,9 @@ void ffaml_checkin_packet_pts(AVCodecContext *avctx, AVPacket *avpkt)
   int ret;
   AMLDecodeContext *aml_context = (AMLDecodeContext*)avctx->priv_data;
 
-  double pts = (avpkt->pts * PTS_FREQ) * av_q2d(avctx->time_base);
-  //aml_context->last_checkin_pts = avpkt->pts * av_q2d(avctx->time_base);
-  if ((ret = codec_checkin_pts(&aml_context->codec, pts)) < 0)
+  double pts = ((double)avpkt->pts * (double)PTS_FREQ) * av_q2d(avctx->time_base);
+  av_log(avctx, AV_LOG_DEBUG, "checking in  pts =%f\n", pts);
+  if ((ret = codec_checkin_pts(&aml_context->codec, (unsigned long)pts)) < 0)
   {
     av_log(avctx, AV_LOG_ERROR, "failed to checkin the pts (code = %d)\n", ret);
   }
@@ -223,15 +165,15 @@ static av_cold int ffaml_init_decoder(AVCodecContext *avctx)
   // reset the first packet attribute
   aml_context->first_packet = 1;
   aml_context->bsf = NULL;
-  //aml_context->last_checkin_pts = 0;
   aml_context->packets_written = 0;
-  //ffaml_init_queue(&aml_context->writequeue);
+  aml_context->frame_count = 0;
+
+  ffaml_init_queue(&aml_context->framequeue);
 
   // setup the codec structure for amcodec
   memset(pcodec, 0, sizeof(codec_para_t));
   memset(&aml_context->buffer_status, 0, sizeof(aml_context->buffer_status));
   memset(&aml_context->decoder_status, 0, sizeof(aml_context->decoder_status));
-  //memset(&aml_context->prefeed_header, 0, sizeof(aml_context->prefeed_header));
   memset(&aml_context->ion_context, 0, sizeof(aml_context->ion_context));
 
   ret = aml_ion_open(avctx, &aml_context->ion_context);
@@ -245,18 +187,18 @@ static av_cold int ffaml_init_decoder(AVCodecContext *avctx)
   pcodec->has_video = 1;
   pcodec->video_type = aml_get_vformat(avctx);
   pcodec->am_sysinfo.format = aml_get_vdec_type(avctx);
-  pcodec->am_sysinfo.param = (void*)(SYNC_OUTSIDE);
+  pcodec->am_sysinfo.param = (void*)(EXTERNAL_PTS | SYNC_OUTSIDE);
   pcodec->am_sysinfo.width = avctx->width;
   pcodec->am_sysinfo.height = avctx->height;
 
   // checks if codec formats and decoder have been properly setup
-  if (pcodec->video_type == VFORMAT_UNSUPPORT)
+  if (pcodec->video_type == -1)
   {
     av_log(avctx, AV_LOG_ERROR, "Cannot determine proper video type : Codec ID=%d\n", avctx->codec_id);
     return -1;
   }
 
-  if (pcodec->am_sysinfo.format == VIDEO_DEC_FORMAT_UNKNOW)
+  if (pcodec->am_sysinfo.format == -1)
   {
     av_log(avctx, AV_LOG_ERROR, "Cannot determine proper video decder : Codec TAG=0x%x\n", avctx->codec_tag);
     return -1;
@@ -305,6 +247,8 @@ static av_cold int ffaml_close_decoder(AVCodecContext *avctx)
   // close ion driver
   aml_ion_close(avctx, &aml_context->ion_context);
 
+  av_buffer_unref(&aml_context->ctx_ref);
+
   av_log(avctx, AV_LOG_DEBUG, "amcodec closed successfully\n");
   return 0;
 }
@@ -312,12 +256,12 @@ static av_cold int ffaml_close_decoder(AVCodecContext *avctx)
 static void ffaml_release_frame(void *opaque, uint8_t *data)
 {
   AMLBuffer *pbuffer = (AMLBuffer *)data;
-  AMLDecodeContext *avctx = (AMLDecodeContext *)opaque;
+  AVBufferRef *buf_ref = (AVBufferRef*)opaque;
 
   if (pbuffer)
   {
-    av_log(avctx, AV_LOG_DEBUG, "Releasing Buffer #%d\n", pbuffer->index);
     pbuffer->requeue = 1;
+    av_buffer_unref(&buf_ref);
   }
 }
 
@@ -356,109 +300,132 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
   int ret = 0;
   AVPacket filter_pkt = {0};
   AVPacket filtered_packet = {0};
-  //AVPacket *pkt;
   AVFrame *frame = data;
   uint8_t *extradata;
   int extradata_size;
   int bufferid;
   AMLBuffer *pbuffer;
+  struct timespec starttime, endtime;
 
 #if DEBUG
   ffaml_log_decoder_info(avctx);
 #endif
 
-  int mpvcount= 0;
-  int decount =0;
+  clock_gettime(CLOCK_REALTIME, &starttime);
+
+    // requeue any available buffers
   for (int i=0; i < AML_BUFFER_COUNT; i++)
   {
-
-    if (!aml_context->ion_context.buffers[i].queued)
+    if ((!aml_context->ion_context.buffers[i]->queued) && (aml_context->ion_context.buffers[i]->requeue))
     {
-      if (aml_context->ion_context.buffers[i].requeue)
-      {
-        av_log(avctx, AV_LOG_DEBUG, "Requeuing Buffer #%d\n", i);
-        aml_ion_queue_buffer(avctx, &aml_context->ion_context, &aml_context->ion_context.buffers[i]);
-        decount++;
-      }
-      else mpvcount++;
+      av_log(avctx, AV_LOG_DEBUG, "Requeuing Buffer #%d\n", i);
+      aml_ion_queue_buffer(avctx, &aml_context->ion_context, aml_context->ion_context.buffers[i]);
+      aml_context->ion_context.buffers[i]->requeue = 0;
     }
-    else decount++;
   }
 
-  av_log(avctx, AV_LOG_DEBUG, "Buffers : decoder %d / MPV : %d\n", decount, mpvcount);
-
+  // AML deocder has a limited decoder buffer size, so we just use a queue
+  // to store packets and not to loose any, then we dequeue packets if
+  // they can be written to decoder memory
   if ((avpkt) && (avpkt->data))
   {
-
-    // first we bitstream the packet if it's required
-    if (aml_context->bsf)
+    // queue the packet to packet queue
+    ret = ffaml_queue_packet(avctx, &aml_context->packetqueue, avpkt);
+    if (ret < 0)
     {
-      // if we use a bitstream filter, then use it
-      if ((ret = av_packet_ref(&filter_pkt, avpkt)) < 0)
-          return ret;
+      av_log(avctx, AV_LOG_ERROR, "Failed to queue packet\n");
+      return -1;
+    }
+  }
 
-      if ((ret = av_bsf_send_packet(aml_context->bsf, &filter_pkt)) < 0) {
-          av_packet_unref(&filter_pkt);
-          return ret;
+  // grab the video decoder buffer status
+  ret = codec_get_vbuf_state(pcodec, &aml_context->buffer_status);
+  if (ret < 0)
+  {
+    av_log(avctx, AV_LOG_ERROR, "failed to retrieve video buffer status (code=%d)\n", ret);
+    return -1;
+  }
+
+  // now check if we have enough space to write to decoder
+  if ((aml_context->packetqueue.tail) &&
+      aml_context->buffer_status.free_len > (aml_context->packetqueue.tail->pkt->size + MAX_HEADER_SIZE))
+  {
+    // dequeue  a packet from the queue
+    avpkt = ffaml_dequeue_packet(avctx,  &aml_context->packetqueue);
+    if (avpkt)
+    {
+      // first we bitstream the packet if it's required
+      // this seems to be requried for H264 / HEVC / H265
+      if (aml_context->bsf)
+      {
+        // if we use a bitstream filter, then use it
+        if ((ret = av_packet_ref(&filter_pkt, avpkt)) < 0)
+            return ret;
+
+        if ((ret = av_bsf_send_packet(aml_context->bsf, &filter_pkt)) < 0) {
+            av_packet_unref(&filter_pkt);
+            return ret;
+        }
+
+        if ((ret = av_bsf_receive_packet(aml_context->bsf, &filtered_packet)) < 0)
+            return ret;
+
+        av_packet_unref(avpkt);
+        avpkt = &filtered_packet;
+        extradata = aml_context->bsf->par_out->extradata;
+        extradata_size = aml_context->bsf->par_out->extradata_size;
+      }
+      else
+      {
+        // otherwise, we shouldn't need it, just use plain extradata
+        extradata = avctx->extradata;
+        extradata_size = avctx->extradata_size;
       }
 
-      if ((ret = av_bsf_receive_packet(aml_context->bsf, &filtered_packet)) < 0)
-          return ret;
+      // now we need to write packet to decoder which requires
+      // - a prefeed header priori to any packet
+      // - an optionnal packet header
+      // - the packet data itself
 
-      avpkt = &filtered_packet;
-      extradata = aml_context->bsf->par_out->extradata;
-      extradata_size = aml_context->bsf->par_out->extradata_size;
-    }
-    else
-    {
-      // otherwise, we shouldn't need it, just use plain extradata
-      extradata = avctx->extradata;
-      extradata_size = avctx->extradata_size;
-    }
+      // we need to write the prefeed header on first packet
+      if (aml_context->first_packet)
+      {
+        // we need make a header from extradata to prefeed the decoder
+        ffaml_create_prefeed_header(avctx, avpkt, &header, extradata, extradata_size);
 
-    // we need to write the prefeed header on first packet
-    if (aml_context->first_packet)
-    {
-      // we need make a header from extradata to prefeed the decoder
-      ffaml_create_prefeed_header(avctx, avpkt, &header, extradata, extradata_size);
+        if (header.size > 0)
+        {
+          ret = ffaml_write_codec_data(avctx, header.data, header.size);
+          if (ret < 0)
+          {
+            av_log(avctx, AV_LOG_ERROR, "Failed to write prefeed header\n");
+            return -1;
+          }
+        }
 
+        aml_context->first_packet = 0;
+      }
+
+      // now write the packet header if any
+      ffaml_get_packet_header(avctx, &header, avpkt);
       if (header.size > 0)
       {
         ret = ffaml_write_codec_data(avctx, header.data, header.size);
         if (ret < 0)
         {
-          av_log(avctx, AV_LOG_ERROR, "Failed to write prefeed header\n");
+          av_log(avctx, AV_LOG_ERROR, "Failed to write packet header\n");
           return -1;
         }
       }
 
-      aml_context->first_packet = 0;
-    }
-
-    // now write the packet header if any
-    ffaml_get_packet_header(avctx, &header, avpkt);
-    if (header.size > 0)
-    {
-      ret = ffaml_write_codec_data(avctx, header.data, header.size);
-      if (ret < 0)
-      {
-        av_log(avctx, AV_LOG_ERROR, "Failed to write packet header\n");
-        return -1;
-      }
-    }
-
-    // now write packet data
-    if (avpkt->size > 0)
-    {
-
+      // now write packet data
+#if DEBUG
       av_log(avctx, AV_LOG_DEBUG, "Writing frame with pts=%f, wpkt=%d, size=%d header=%d\n",
              avpkt->pts * av_q2d(avctx->time_base),
              aml_context->packets_written,
              avpkt->size,
              header.size);
-
-      // check in the pts
-      ffaml_checkin_packet_pts(avctx, avpkt);
+#endif
 
       ret = ffaml_write_codec_data(avctx, avpkt->data, avpkt->size);
       if (ret < 0)
@@ -468,45 +435,56 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
       }
 
       aml_context->packets_written++;
+
+      ret = ffaml_queue_packet(avctx, &aml_context->framequeue, avpkt);
+      if (ret < 0)
+      {
+        av_log(avctx, AV_LOG_ERROR, "Failed to queue frame\n");
+        return -1;
+      }
+
+      av_packet_unref(avpkt);
     }
   }
 
-  // grab the video decoder status
-  ret = codec_get_vdec_state(pcodec, &aml_context->decoder_status);
-  if (ret < 0)
-  {
-    av_log(avctx, AV_LOG_ERROR, "failed to retrieve video decoder status (code=%d)\n", ret);
-    return -1;
-  }
-
-  // Now that dodec has been fed, we need to check if we have an available frame to dequeue
+  // Now that codec has been fed, we need to check if we have an available frame to dequeue
   if (aml_context->packets_written >= MIN_DECODER_PACKETS)
     bufferid = aml_ion_dequeue_buffer(avctx, &aml_context->ion_context, got_frame, MAX_DEQUEUE_TIMEOUT_MS);
 
-  if (frame->buf[0])
-    av_log(avctx, AV_LOG_ERROR, "Frame Buf[0] is not NULL\n");
-
   if (*got_frame)
   {
-    pbuffer =  &aml_context->ion_context.buffers[bufferid];
+    // we peek the framequeue packet to grap the first pts
+    AVPacket *framepacket = ffaml_queue_peek_pts_packet(avctx, &aml_context->framequeue);
+    if (framepacket)
+    {
+      av_log(avctx, AV_LOG_DEBUG, "peeked pts is %f\n", (double)framepacket->pts *av_q2d(avctx->time_base));
+    }
+
+    pbuffer =  aml_context->ion_context.buffers[bufferid];
 
     frame->format = AV_PIX_FMT_AML;
     frame->width = pbuffer->width;
     frame->height = pbuffer->height;
     frame->linesize[0] = pbuffer->stride;
-    frame->buf[0] = av_buffer_create((uint8_t *)pbuffer, 0, ffaml_release_frame, avctx, AV_BUFFER_FLAG_READONLY);
+    frame->buf[0] = av_buffer_create((uint8_t *)pbuffer, 0, ffaml_release_frame, av_buffer_ref(aml_context->ion_context.bufrefs[bufferid]), AV_BUFFER_FLAG_READONLY);
     frame->data[0] = (uint8_t*)pbuffer;
-    frame->pkt_pts = pbuffer->pts;
-    pbuffer->requeue = 0;
+    frame->pkt_pts = framepacket->pts;
 
-//#if DEBUG
-    av_log(avctx, AV_LOG_DEBUG, "Sending Buffer %d (pts=%f) (%dx%d)!!!\n",
-           bufferid, aml_context->ion_context.buffers[bufferid].pts * av_q2d(avctx->time_base), frame->width, frame->height);
-//#endif
+    pbuffer->requeue = 0;
+    aml_context->frame_count++;
+
+    av_packet_unref(framepacket);
+
+#if DEBUG
+    av_log(avctx, AV_LOG_DEBUG, "Sending Buffer %d (pts=%f) (%dx%d)\n",
+           bufferid, frame->pkt_pts * av_q2d(avctx->time_base), frame->width, frame->height);
+#endif
 
     //aml_ion_queue_buffer(avctx, &aml_context->ion_context, &aml_context->ion_context.buffers[bufferid]);
   }
 
+   clock_gettime(CLOCK_REALTIME, &endtime);
+   av_log(avctx, AV_LOG_DEBUG,"Decode took %ld usec\n", (endtime.tv_nsec - starttime.tv_nsec) / 1000);
    return 0;
 }
 
@@ -517,7 +495,9 @@ static void ffaml_flush(AVCodecContext *avctx)
   AMLDecodeContext *aml_context = (AMLDecodeContext*)avctx->priv_data;
 
   av_log(avctx, AV_LOG_DEBUG, "Flushing ...\n");
-  //ffaml_queue_clear(avctx, &aml_context->writequeue);
+
+  ffaml_queue_clear(avctx, &aml_context->packetqueue);
+  ffaml_queue_clear(avctx, &aml_context->framequeue);
 
   // reset our codec to clean buffers
   ret = codec_reset(&aml_context->codec);
@@ -528,6 +508,7 @@ static void ffaml_flush(AVCodecContext *avctx)
   }
 
   aml_context->packets_written = 0;
+  aml_context->frame_count = 0;
 
   // flush ion, so that all buffers get dequeued and requeued
   ret = aml_ion_flush(avctx, &aml_context->ion_context);
@@ -582,3 +563,5 @@ FFAML_DEC(hevc, AV_CODEC_ID_HEVC)
 FFAML_DEC(mpeg4, AV_CODEC_ID_MPEG4)
 
 FFAML_DEC(vc1, AV_CODEC_ID_VC1)
+
+FFAML_DEC(mpeg2, AV_CODEC_ID_MPEG2VIDEO)

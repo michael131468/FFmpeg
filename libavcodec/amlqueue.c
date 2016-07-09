@@ -39,7 +39,7 @@ int ffaml_queue_packet(AVCodecContext *avctx, PacketQueue *queue, AVPacket *avpk
   queue->size++;
 
 #if DEBUG
-  av_log(avctx, AV_LOG_DEBUG, "queued packet in %x, entry=%x, pkt=%x size= %d\n", queue, packetentry,packetentry->pkt, queue->size);
+  av_log(avctx, AV_LOG_DEBUG, "queued packet in %p, entry=%p, pkt=%p size= %d\n", queue, packetentry,packetentry->pkt, queue->size);
 #endif
   return 0;
 
@@ -66,7 +66,7 @@ AVPacket *ffaml_dequeue_packet(AVCodecContext *avctx, PacketQueue *queue)
 
 
 #if DEBUG
-  av_log(avctx, AV_LOG_DEBUG, "dequeued packet in %x, entry=%x, remaining %d\n", queue, packetentry, queue->size);
+  av_log(avctx, AV_LOG_DEBUG, "dequeued packet in %p, entry=%p, remaining %d\n", queue, packetentry, queue->size);
 #endif
   pkt = packetentry->pkt;
   free(packetentry);
@@ -86,7 +86,7 @@ AVPacket *ffaml_queue_peek_pts_packet(AVCodecContext *avctx, PacketQueue *queue)
   while (packetentry)
   {
     if (!packetentry->pkt)
-      av_log(avctx, AV_LOG_ERROR, "packet entry %x packet is null and shouldn't be !\n", packetentry);
+      av_log(avctx, AV_LOG_ERROR, "packet entry %p packet is null and shouldn't be !\n", packetentry);
 
     packet_pts = packetentry->pkt->pts * av_q2d(avctx->time_base);
     if (packet_pts < smallest_pts)
@@ -98,7 +98,7 @@ AVPacket *ffaml_queue_peek_pts_packet(AVCodecContext *avctx, PacketQueue *queue)
   }
 
 #if DEBUG
-   av_log(avctx, AV_LOG_DEBUG, "peeking packet in %x, entry=%x, pts=%f, remaining %d\n", queue, foundentry, (double)foundentry->pkt->pts * av_q2d(avctx->time_base), queue->size);
+   av_log(avctx, AV_LOG_DEBUG, "peeking packet in %p, entry=%p, pts=%f, remaining %d\n", queue, foundentry, (double)foundentry->pkt->pts * av_q2d(avctx->time_base), queue->size);
 #endif
 
   // now remove the rentry from queue

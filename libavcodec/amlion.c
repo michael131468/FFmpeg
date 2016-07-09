@@ -12,11 +12,7 @@
 #include "amltools.h"
 #include "amlion.h"
 
-
-//#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_RGB32
-//#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_NV12
 #define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_NV21
-//#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_YUV420
 
 // IION Driver allocation ioctl structures
 enum ion_heap_type
@@ -90,9 +86,10 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
   // create the video Buffers
   for (int i=0; i < AML_BUFFER_COUNT; i++)
   {
-    memset(&ionctx->buffers[i], 0, sizeof(ionctx->buffers[i]));
-    ionctx->buffers[i].index = i;
-    ret = aml_ion_create_buffer(avctx, ionctx, &ionctx->buffers[i]);
+    ionctx->bufrefs[i] = av_buffer_allocz(sizeof(AMLBuffer));
+    ionctx->buffers[i] = (AMLBuffer*)ionctx->bufrefs[i]->data;
+    ionctx->buffers[i]->index = i;
+    ret = aml_ion_create_buffer(avctx, ionctx, ionctx->buffers[i]);
     if (ret < 0)
     {
       av_log(avctx, AV_LOG_ERROR, "failed to create ion buffer %d\n", i);
@@ -146,7 +143,7 @@ int aml_ion_open(AVCodecContext *avctx, AMLIonContext *ionctx)
   // queue the buffers
   for (int i=0; i < AML_BUFFER_COUNT; i++)
   {
-    ret = aml_ion_queue_buffer(avctx, ionctx, &ionctx->buffers[i]);
+    ret = aml_ion_queue_buffer(avctx, ionctx, ionctx->buffers[i]);
     if (ret < 0)
     {
       goto err;
@@ -181,13 +178,16 @@ int aml_ion_flush(AVCodecContext *avctx, AMLIonContext *ionctx)
     return -1;
   }
 
-  // queue the buffers
+  // requeue the buffers that were queued
   for (int i=0; i < AML_BUFFER_COUNT; i++)
   {
-    ret = aml_ion_queue_buffer(avctx, ionctx, &ionctx->buffers[i]);
-    if (ret < 0)
+    if (ionctx->buffers[i]->queued)
     {
-      return -1;
+      ret = aml_ion_queue_buffer(avctx, ionctx, ionctx->buffers[i]);
+      if (ret < 0)
+      {
+        return -1;
+      }
     }
   }
 
@@ -245,7 +245,8 @@ int aml_ion_close(AVCodecContext *avctx, AMLIonContext *ionctx)
     // free the buffers
     for (int i=0; i < AML_BUFFER_COUNT; i++)
     {
-      aml_ion_free_buffer(avctx, ionctx, &ionctx->buffers[i]);
+      aml_ion_free_buffer(avctx, ionctx, ionctx->buffers[i]);
+      av_buffer_unref(&ionctx->bufrefs[i]);
     }
 
     av_log(avctx, AV_LOG_DEBUG, "Closing ion device %s with fd=%d\n", ION_DEVICE_NAME, ionctx->ion_fd);
@@ -377,7 +378,6 @@ int aml_ion_queue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer 
   }
 
   buffer->queued = 1;
-  buffer->requeue = 0;
   return buffer->index;
 }
 
@@ -411,9 +411,9 @@ int aml_ion_dequeue_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, int *got
       }
     }
 
-    ionctx->buffers[vbuf.index].queued = 0;
-    ionctx->buffers[vbuf.index].fpts = ((double)vbuf.timestamp.tv_usec / 1000000.0);
-    ionctx->buffers[vbuf.index].pts = ionctx->buffers[vbuf.index].fpts / av_q2d(avctx->time_base);
+    ionctx->buffers[vbuf.index]->queued = 0;
+    ionctx->buffers[vbuf.index]->fpts = ((double)vbuf.timestamp.tv_usec / 1000000.0);
+    ionctx->buffers[vbuf.index]->pts = ionctx->buffers[vbuf.index]->fpts / av_q2d(avctx->time_base);
 
     *got_buffer = 1;
   }

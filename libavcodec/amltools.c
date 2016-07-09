@@ -101,7 +101,7 @@ vformat_t aml_get_vformat(AVCodecContext *avctx)
       break;
 
     default:
-      format = VFORMAT_UNSUPPORT;
+      format = -1;
       break;
   }
 
@@ -110,7 +110,7 @@ vformat_t aml_get_vformat(AVCodecContext *avctx)
 
 vdec_type_t aml_get_vdec_type(AVCodecContext *avctx)
 {
-  vdec_type_t dec_type = VIDEO_DEC_FORMAT_UNKNOW;
+  vdec_type_t dec_type = -1;
 
   switch (avctx->codec_tag)
   {
@@ -237,6 +237,10 @@ vdec_type_t aml_get_vdec_type(AVCodecContext *avctx)
 
       case VFORMAT_VC1:
         dec_type = VIDEO_DEC_FORMAT_WVC1;
+      break;
+
+//      case VFORMAT_MPEG12:
+//        dec_type = VIDEO_DEC_FORMAT_UNKNOW;
       break;
 
       default:

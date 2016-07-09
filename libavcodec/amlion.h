@@ -2,6 +2,7 @@
 #define _AMLION_H_
 
 #include <libavcodec/aml.h>
+#include <libavutil/buffer.h>
 
 #define ION_DEVICE_NAME         "/dev/ion"
 #define ION_VIDEO_DEVICE_NAME   "/dev/video13"
@@ -12,7 +13,9 @@ typedef struct {
   int pixel_format;
   int capture_width;
   int capture_height;
-  AMLBuffer buffers[AML_BUFFER_COUNT];
+  //AMLBuffer buffers[AML_BUFFER_COUNT];
+  AMLBuffer *buffers[AML_BUFFER_COUNT];
+  AVBufferRef *bufrefs[AML_BUFFER_COUNT];
 
 } AMLIonContext;
 
