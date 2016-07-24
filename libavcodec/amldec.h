@@ -21,8 +21,29 @@
 
 
 #define MAX_HEADER_SIZE         4096
-#define MIN_DECODER_PACKETS     0
-#define MAX_DEQUEUE_TIMEOUT_MS  40
+#define MIN_DECODER_PACKETS     16
+#define MAX_DEQUEUE_TIMEOUT_MS  50
+
+#define VFM_GRABBER_DEVICE_NAME "/dev/vfm_grabber"
+
+#define VFM_GRABBER_GET_FRAME   _IOWR('V', 0x01, vfm_grabber_frame)
+#define VFM_GRABBER_GET_INFO    _IOWR('V', 0x02, vfm_grabber_info)
+
+typedef struct
+{
+  int dma_fd;
+  int width;
+  int height;
+  int stride;
+  void *priv;
+} vfm_grabber_frame;
+
+typedef struct
+{
+  int frames_decoded;
+  int frames_ready;
+} vfm_grabber_info;
+
 
 typedef struct {
   char data[MAX_HEADER_SIZE];
@@ -48,6 +69,8 @@ typedef struct {
   AVBufferRef *ctx_ref;
   PacketQueue framequeue;
   PacketQueue packetqueue;
+  struct timespec firstframetime;
+  int vfmg_fd;
 } AMLDecodeContext;
 
 // Functions prototypes

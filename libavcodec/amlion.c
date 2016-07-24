@@ -13,6 +13,8 @@
 #include "amlion.h"
 
 #define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_NV21
+//#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_NV12
+//#define BUFFER_PIXEL_FORMAT V4L2_PIX_FMT_RGB32
 
 // IION Driver allocation ioctl structures
 enum ion_heap_type
@@ -29,6 +31,7 @@ enum ion_heap_type
 #define ION_HEAP_SYSTEM_MASK        (1 << ION_HEAP_TYPE_SYSTEM)
 #define ION_HEAP_SYSTEM_CONTIG_MASK (1 << ION_HEAP_TYPE_SYSTEM_CONTIG)
 #define ION_HEAP_CARVEOUT_MASK      (1 << ION_HEAP_TYPE_CARVEOUT)
+#define ION_FLAG_CACHED 1
 
 typedef int ion_handle;
 
@@ -301,6 +304,7 @@ int aml_ion_create_buffer(AVCodecContext *avctx,AMLIonContext *ionctx, AMLBuffer
   // allocate the buffer
   ion_alloc.len = buffer->size;
   ion_alloc.heap_id_mask = ION_HEAP_CARVEOUT_MASK;
+  ion_alloc.flags = ION_FLAG_CACHED;
 
   ret = ioctl(ionctx->ion_fd, ION_IOC_ALLOC, &ion_alloc);
   if (ret < 0)

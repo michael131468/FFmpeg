@@ -99,6 +99,9 @@ void avcodec_register_all(void)
     REGISTER_HWACCEL(MPEG2_VIDEOTOOLBOX, mpeg2_videotoolbox);
     REGISTER_HWACCEL(MPEG4_MMAL,        mpeg4_mmal);
     REGISTER_HWACCEL(MPEG4_AML,         mpeg4_aml);
+    REGISTER_HWACCEL(MSMPEG4V1_AML,     msmpeg4v1_aml);
+    REGISTER_HWACCEL(MSMPEG4V2_AML,     msmpeg4v2_aml);
+    REGISTER_HWACCEL(MSMPEG4V3_AML,     msmpeg4v3_aml);
     REGISTER_HWACCEL(MPEG4_VAAPI,       mpeg4_vaapi);
     REGISTER_HWACCEL(MPEG4_VDPAU,       mpeg4_vdpau);
     REGISTER_HWACCEL(MPEG4_VIDEOTOOLBOX, mpeg4_videotoolbox);
@@ -240,7 +243,10 @@ void avcodec_register_all(void)
     REGISTER_ENCDEC (MPEG4,             mpeg4);
     REGISTER_DECODER(MPEG4_CRYSTALHD,   mpeg4_crystalhd);
     REGISTER_DECODER(MPEG4_MMAL,        mpeg4_mmal);
-    REGISTER_DECODER(MPEG4_AML,         mpeg4_aml)
+    REGISTER_DECODER(MPEG4_AML,         mpeg4_aml);
+    REGISTER_DECODER(MSMPEG4V1_AML,     msmpeg4v1_aml);
+    REGISTER_DECODER(MSMPEG4V2_AML,     msmpeg4v2_aml);
+    REGISTER_DECODER(MSMPEG4V3_AML,     msmpeg4v3_aml);
 #if FF_API_VDPAU
     REGISTER_DECODER(MPEG4_VDPAU,       mpeg4_vdpau);
 #endif
