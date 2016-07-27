@@ -49,8 +49,9 @@
 
 #undef DEBUG
 #define DEBUG (1)
-#define USE_V4L 1
+#define USE_V4L 0
 #define USE_VFM 0
+#define USE_AMV 1
 
 void ffaml_log_decoder_info(AVCodecContext *avctx)
 {
@@ -208,14 +209,35 @@ static av_cold int ffaml_init_decoder(AVCodecContext *avctx)
   av_log(avctx, AV_LOG_DEBUG, "openned %s with fd=%d\n", VFM_GRABBER_DEVICE_NAME, aml_context->vfmg_fd);
 
   amlsysfs_write_string(avctx, "/sys/class/vfm/map", "rm default");
-  amlsysfs_write_string(avctx, "/sys/class/vfm/map", "add default decoder vfm_grabber");
+  amlsysfs_write_string(avctx, "/sys/class/vfm/map", "add default decoder ppmgr deinterlace vfm_grabber amvideo");
+  //amlsysfs_write_string(avctx, "/sys/class/vfm/map", "add default decoder vfm_grabber");
+
+  amlsysfs_write_int(avctx, "/sys/class/video/disable_video", 0);
+  amlsysfs_write_int(avctx, "/sys/class/video/blackout_policy", 0);
+#endif
+
+#if USE_AMV
+//  // open the vfm_grabber device
+//  if ((aml_context->amv_fd = open(AMVIDEO_DEVICE_NAME, O_RDWR)) < 0)
+//  {
+//    av_log(avctx, AV_LOG_ERROR, "Failed to open %s\n", AMVIDEO_DEVICE_NAME);
+//    return -1;
+//  }
+
+//  av_log(avctx, AV_LOG_DEBUG, "openned %s with fd=%d\n", AMVIDEO_DEVICE_NAME, aml_context->amv_fd);
+
+  amlsysfs_write_string(avctx, "/sys/class/vfm/map", "rm default");
+  amlsysfs_write_string(avctx, "/sys/class/vfm/map", "add default decoder ppmgr deinterlace amvideo");
+
+  amlsysfs_write_int(avctx, "/sys/class/video/disable_video", 0);
+  amlsysfs_write_int(avctx, "/sys/class/video/blackout_policy", 0);
 #endif
 
   pcodec->stream_type = STREAM_TYPE_ES_VIDEO;
   pcodec->has_video = 1;
   pcodec->video_type = aml_get_vformat(avctx);
   pcodec->am_sysinfo.format = aml_get_vdec_type(avctx);
-  pcodec->am_sysinfo.param = (void*)(SYNC_OUTSIDE);
+  pcodec->am_sysinfo.param = (void*)(EXTERNAL_PTS | SYNC_OUTSIDE);
   pcodec->am_sysinfo.width = avctx->width;
   pcodec->am_sysinfo.height = avctx->height;
   pcodec->am_sysinfo.rate = (96000.0 / (60000.0 / 1001.0));
@@ -244,7 +266,7 @@ static av_cold int ffaml_init_decoder(AVCodecContext *avctx)
   codec_resume(pcodec);
 
   // Enable double write mode for H265, so that it outputs NV21
-  amlsysfs_write_int(avctx, "/sys/module/amvdec_h265/parameters/double_write_mode", 1);
+  //amlsysfs_write_int(avctx, "/sys/module/amvdec_h265/parameters/double_write_mode", 1);
 
  // eventually create a bistream filter for formats tha require it
  ret = ffmal_init_bitstream(avctx);
@@ -295,6 +317,8 @@ static av_cold int ffaml_close_decoder(AVCodecContext *avctx)
 
 static void ffaml_release_frame(void *opaque, uint8_t *data)
 {
+
+#if USE_V4L
   AMLBuffer *pbuffer = (AMLBuffer *)data;
   AVBufferRef *buf_ref = (AVBufferRef*)opaque;
 
@@ -303,6 +327,17 @@ static void ffaml_release_frame(void *opaque, uint8_t *data)
     pbuffer->requeue = 1;
     av_buffer_unref(&buf_ref);
   }
+#endif
+
+#if USE_VFM
+  vfm_grabber_frame *frame = (vfm_grabber_frame*)data;
+  if (frame)
+  {
+    //av_log(avctx, AV_LOG_DEBUG, "ffaml_release_frame called with %p\n", frame->priv);
+    printf("Reasling Frame !!\n");
+    av_free(frame);
+  }
+#endif
 }
 
 void ffaml_get_packet_header(AVCodecContext *avctx, AMLHeader *header, AVPacket *pkt)
@@ -360,23 +395,23 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
 
   // requeue any available buffers
 #if USE_V4L
-  for (int i=0; i < AML_BUFFER_COUNT; i++)
-  {
-    if (!aml_context->ion_context.buffers[i]->queued)
-    {
-      if (aml_context->ion_context.buffers[i]->requeue)
-      {
-        av_log(avctx, AV_LOG_DEBUG, "Requeuing Buffer #%d\n", i);
-        aml_ion_queue_buffer(avctx, &aml_context->ion_context, aml_context->ion_context.buffers[i]);
-        aml_context->ion_context.buffers[i]->requeue = 0;
-        deccount++;
-     }
-     else
-       mpvcount++;
-    }
-    else
-      deccount++;
-  }
+//  for (int i=0; i < AML_BUFFER_COUNT; i++)
+//  {
+//    if (!aml_context->ion_context.buffers[i]->queued)
+//    {
+//      if (aml_context->ion_context.buffers[i]->requeue)
+//      {
+//        av_log(avctx, AV_LOG_DEBUG, "Requeuing Buffer #%d\n", i);
+//        aml_ion_queue_buffer(avctx, &aml_context->ion_context, aml_context->ion_context.buffers[i]);
+//        aml_context->ion_context.buffers[i]->requeue = 0;
+//        deccount++;
+//     }
+//     else
+//       mpvcount++;
+//    }
+//    else
+//      deccount++;
+//  }
 #endif
 
 #if DEBUG
@@ -488,6 +523,8 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
              header.size);
 #endif
 
+      ffaml_checkin_packet_pts(avctx, avpkt);
+
       ret = ffaml_write_codec_data(avctx, avpkt->data, avpkt->size);
       if (ret < 0)
       {
@@ -531,7 +568,7 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
 
   vfm_grabber_frame vfm_frame;
 
-  if ((vfm_info.frames_decoded > 4) || (vfm_info.frames_ready >= 4))
+  //if ((vfm_info.frames_decoded > 2) || (vfm_info.frames_ready >= 2))
 #endif
 
 #if USE_V4L
@@ -549,6 +586,7 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
     {
       av_log(avctx, AV_LOG_ERROR, "ioctl for VFM_GRABBER_GET_FRAME failed\n");
       *got_frame = 0;
+      usleep(10000);
     }
     else
     {
@@ -556,13 +594,17 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
     }
 #endif
 
+#if USE_AMV
+    *got_frame = 1;
+#endif
+
     clock_gettime(CLOCK_REALTIME, &enddqtime);
     av_log(avctx, AV_LOG_DEBUG,"Dequeue took %ld usec\n", (enddqtime.tv_nsec - startdqtime.tv_nsec) / 1000);
   }
-  else
-  {
-    usleep(50000);
-  }
+//  else
+//  {
+//    usleep(50000);
+//  }
 
   if (*got_frame)
   {
@@ -588,16 +630,32 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
 #endif
 
 #if USE_VFM
+    vfm_grabber_frame *newframe = av_mallocz(sizeof(vfm_grabber_frame));
+    memcpy(newframe, &vfm_frame, sizeof(vfm_grabber_frame));
+
     frame->format = AV_PIX_FMT_AML;
-    frame->width = vfm_frame.width;
-    frame->height = vfm_frame.height;
-    frame->linesize[0] = vfm_frame.stride;
-    frame->buf[0] = av_buffer_create((uint8_t *)NULL, 0, NULL, NULL, AV_BUFFER_FLAG_READONLY);
-    frame->data[0] = vfm_frame.dma_fd;
+    frame->width = newframe->width;
+    frame->height = newframe->height;
+    frame->linesize[0] = newframe->stride;
+    frame->buf[0] = av_buffer_create((uint8_t *)newframe, sizeof(vfm_grabber_frame), NULL, NULL, AV_BUFFER_FLAG_READONLY);
+    frame->data[0] = newframe;
     frame->pkt_pts = framepacket->pts;
 
     av_log(avctx, AV_LOG_DEBUG, "VFM dequeued FD %d  (%dx%d)\n",
            vfm_frame.dma_fd, frame->width, frame->height);
+#endif
+
+
+#if USE_AMV
+    frame->format = AV_PIX_FMT_AML;
+    frame->width = avctx->width;
+    frame->height = avctx->height;
+    frame->linesize[0] = avctx->width;
+    frame->buf[0] = av_buffer_create((uint8_t *)NULL, 0, NULL, NULL, AV_BUFFER_FLAG_READONLY);
+    frame->data[0] = aml_context->frame_count+1;
+    frame->pkt_pts = framepacket->pts;
+
+     av_log(avctx, AV_LOG_DEBUG, "Sending frame %d\n", aml_context->frame_count);
 #endif
 
     double dframetime;
@@ -626,14 +684,16 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
 //    if ((dframetime > ptstime))
 //      goto dequeueframe;
 
-#if DEBUG
+#if USE_V4L
     av_log(avctx, AV_LOG_DEBUG, "Sending Buffer %d (pts=%f) (%dx%d)\n",
            bufferid, frame->pkt_pts * av_q2d(avctx->time_base), frame->width, frame->height);
 #endif
 
 #if USE_V4L
-    //aml_ion_queue_buffer(avctx, &aml_context->ion_context, aml_context->ion_context.buffers[bufferid]);
+    aml_ion_queue_buffer(avctx, &aml_context->ion_context, aml_context->ion_context.buffers[bufferid]);
 #endif
+
+    //usleep(10000);
   }
 
    clock_gettime(CLOCK_REALTIME, &endtime);

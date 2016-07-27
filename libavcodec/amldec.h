@@ -25,6 +25,7 @@
 #define MAX_DEQUEUE_TIMEOUT_MS  50
 
 #define VFM_GRABBER_DEVICE_NAME "/dev/vfm_grabber"
+#define AMVIDEO_DEVICE_NAME     "/dev/video10"
 
 #define VFM_GRABBER_GET_FRAME   _IOWR('V', 0x01, vfm_grabber_frame)
 #define VFM_GRABBER_GET_INFO    _IOWR('V', 0x02, vfm_grabber_info)
@@ -71,6 +72,7 @@ typedef struct {
   PacketQueue packetqueue;
   struct timespec firstframetime;
   int vfmg_fd;
+  int amv_fd;
 } AMLDecodeContext;
 
 // Functions prototypes
