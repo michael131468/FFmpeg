@@ -15,6 +15,7 @@ HEADERS = avcodec.h                                                     \
           vaapi.h                                                       \
           vda.h                                                         \
           vdpau.h                                                       \
+          aml.h                                                         \
           version.h                                                     \
           videotoolbox.h                                                \
           vorbis_parser.h                                               \
@@ -318,6 +319,7 @@ OBJS-$(CONFIG_H264_DECODER)            += h264dec.o h264_cabac.o h264_cavlc.o \
 OBJS-$(CONFIG_H264_CUVID_DECODER)      += cuvid.o
 OBJS-$(CONFIG_H264_MEDIACODEC_DECODER) += mediacodecdec_h264.o
 OBJS-$(CONFIG_H264_MMAL_DECODER)       += mmaldec.o
+OBJS-$(CONFIG_H264_AML_DECODER)        += amldec.o amltools.o amlqueue.o
 OBJS-$(CONFIG_H264_NVENC_ENCODER)      += nvenc_h264.o
 OBJS-$(CONFIG_NVENC_ENCODER)           += nvenc_h264.o
 OBJS-$(CONFIG_NVENC_H264_ENCODER)      += nvenc_h264.o
