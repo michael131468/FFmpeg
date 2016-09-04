@@ -169,7 +169,7 @@ void ffaml_checkin_packet_pts(AVCodecContext *avctx, AVPacket *avpkt)
   int ret;
   AMLDecodeContext *aml_context = (AMLDecodeContext*)avctx->priv_data;
 
-  double pts = ((double)avpkt->pts * (double)PTS_FREQ) * av_q2d(avctx->time_base);
+  double pts = ((double)avpkt->pts * (double)PTS_FREQ) * av_q2d(avctx->pkt_timebase);
   av_log(avctx, AV_LOG_DEBUG, "checking in  pts =%f\n", pts);
   if ((ret = codec_checkin_pts(&aml_context->codec, (unsigned long)pts)) < 0)
   {
@@ -435,7 +435,7 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
   // now write packet data
 #if DEBUG
   av_log(avctx, AV_LOG_DEBUG, "Writing frame with pts=%f, wpkt=%d, size=%d header=%d\n",
-         avpkt->pts * av_q2d(avctx->time_base),
+         avpkt->pts * av_q2d(avctx->pkt_timebase),
          aml_context->packets_written,
          avpkt->size,
          header.size);
@@ -491,12 +491,12 @@ static int ffaml_decode(AVCodecContext *avctx, void *data, int *got_frame,
 
     frame->buf[0] = av_buffer_create(NULL, 0, NULL, NULL, AV_BUFFER_FLAG_READONLY);
     frame->data[0] = (uint8_t*)pcodec;
-    frame->pkt_pts = (int64_t)((double)aml_pts / (double)PTS_FREQ / av_q2d(avctx->time_base));
+    frame->pkt_pts = (int64_t)((double)aml_pts / (double)PTS_FREQ / av_q2d(avctx->pkt_timebase));
 
 #if DEBUG
     av_log(avctx, AV_LOG_DEBUG, "Sending frame %d with pts =%f, handle=%ld\n",
            aml_context->frame_count,
-           (double)frame->pkt_pts * av_q2d(avctx->time_base),
+           (double)frame->pkt_pts * av_q2d(avctx->pkt_timebase),
            frame_handle);
 #endif
   }
